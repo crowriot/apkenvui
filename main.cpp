@@ -155,6 +155,14 @@ public:
     }
 
 
+    void blit_to(SDL_Surface* target)
+    {
+        if (m_icon) {
+            SDL_BlitSurface(m_icon,NULL,target,&m_rect);
+        }
+    }
+
+
     /** grid position */
 
     void set_row_column( int row, int col )
@@ -355,12 +363,7 @@ void align_icons(SDL_Surface *target, int border, const vector<AndroidApkEx*>& a
 void draw_icons(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
-        AndroidApkEx* apk = apks[i];
-        SDL_Surface* icon = apk->get_icon_surface();
-
-        if (icon) {
-            SDL_BlitSurface(icon,NULL,target,apk->get_rect());
-        }
+        apks[i]->blit_to(target);
     }
 }
 
