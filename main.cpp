@@ -63,11 +63,36 @@
 #define RUNAPK "./runapk.sh"
 
 
-extern "C" {
+extern "C"
+{
+
 #include "../apkenv/apklib/apklib.h"
+
+void recursive_mkdir(const char *directory)
+{
+    char *tmp = strdup(directory);
+    struct stat st;
+    int len = strlen(directory);
+    int i;
+
+    /* Dirty? Works for me... */
+    for (i=1; i<len; i++) {
+        if (tmp[i] == '/') {
+            tmp[i] = '\0';
+            if (stat(tmp, &st) != 0) {
+                mkdir(tmp, 0700);
+            }
+            tmp[i] = '/';
+        }
+    }
+
+    free(tmp);
+}
+
 }
 
 using namespace std;
+
 
 string my_realpath(const char* dir0)
 {
@@ -254,16 +279,18 @@ public:
 
     void extract_icon()
     {
-        const char* iconfolders[] = {
-            "res/drawable-hdpi/",
+        const char* iconprefixes[] = {
+            "res/drawable-hdpi/icon",
+            "res/drawable/icon",
+            "res/drawable-hdpi",
             "res/drawable",
             0
         };
 
         S_CurrentApk = this;
         int i=0;
-        while(!icon_exists() && iconfolders[i]) {
-            apk_for_each_file(m_apk,iconfolders[i],extract_icon_callback);
+        while(!icon_exists() && iconprefixes[i]) {
+            apk_for_each_file(m_apk,iconprefixes[i],extract_icon_callback);
             i++;
         }
         S_CurrentApk = NULL;
@@ -473,6 +500,11 @@ int main ( int argc, char** argv )
         SDL_putenv("SDL_VIDEO_CENTERED=center"); //Center the game Window
     }
 
+    SDL_ShowCursor(0);
+
+    mkdir( my_realpath(ICONCACHEFOLDER).c_str(), 0700 );
+    mkdir( my_realpath(APKFOLDER).c_str(), 0700 );
+
     // create a new window
     SDL_Surface* screen = SDL_SetVideoMode(SCREENWIDTH, SCREENHEIGHT, SCREENBITS, SDL_VIDEOMODE);
     if ( !screen )
@@ -481,6 +513,7 @@ int main ( int argc, char** argv )
         return 1;
     }
 
+
 // load background image
     SDL_Surface* background = IMG_Load(BACKGROUNDIMAGE);
 // fooonts
@@ -488,7 +521,7 @@ int main ( int argc, char** argv )
     SDL_Color fontcolor = {200,200,200,0};
 
 // prepare info text rendering
-    char errotext[1024]; sprintf(errotext,"No APKs have been found.\n\nPlease place them into the following folder:\n%s",my_realpath(APKFOLDER).c_str());
+    char errotext[1024]; sprintf(errotext,"No APKs have been found.\n\nPlease put them into the following folder:\n%s",my_realpath(APKFOLDER).c_str());
     TextSurface errorscreen(errotext,font,fontcolor);
 
 // search for apks

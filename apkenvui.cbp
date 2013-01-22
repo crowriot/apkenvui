@@ -27,6 +27,20 @@
 					<Add option="-s" />
 				</Linker>
 			</Target>
+			<Target title="Release Pandora">
+				<Option output="bin/Release/apkenvui" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Release/" />
+				<Option type="1" />
+				<Option compiler="pandora_compiler" />
+				<Option use_console_runner="0" />
+				<Compiler>
+					<Add option="-O2" />
+					<Add option="-DPANDORA" />
+				</Compiler>
+				<Linker>
+					<Add option="-s" />
+				</Linker>
+			</Target>
 		</Build>
 		<Compiler>
 			<Add option="-Wall" />
