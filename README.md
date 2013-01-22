@@ -1,4 +1,5 @@
 apkenvui
 ========
 
-apkenvui - quick SDL based interface to start apk's using apkenv
+apkenvui - quick SDL based interface to start apks using apkenv.
+
