@@ -45,12 +45,18 @@
 #define SCREENWIDTH      800
 #define SCREENHEIGHT     480
 #define SCREENBITS       16
-#define ICONBORDER       8
 #define BACKGROUNDIMAGE  "res/background.png"
 #define FONTFACE         "res/DroidSans.ttf"
-#define FONTHEIGHT       16
+#define FONTHEIGHTBIG    16
+#define FONTHEIGHTSMALL  12
+#define ICONOFFSET       8
+#define TEXTOFFSET       4
+#define CLIPBORDER       4
 #define ICONMAXWIDTH     72
 #define ICONMAXHEIGHT    72
+#define WIDGETWIDTH      100
+#define WIDGETHEIGHT     100
+#define FONTCOLOR        {200,200,200,0}
 
 #ifdef PANDORA
 #define SDL_VIDEOMODE (SDL_SWSURFACE|SDL_FULLSCREEN|SDL_DOUBLEBUF)
@@ -59,7 +65,7 @@
 #endif
 
 #define APKFOLDER "./apks"
-#define ICONCACHEFOLDER "./.apkenvui"
+#define ICONCACHEFOLDER "./iconcache"
 #define RUNAPK "./runapk.sh"
 
 
@@ -125,9 +131,12 @@ public:
     Widget() :
         m_icon(NULL),
         m_row(-1),
-        m_col(-1)
+        m_col(-1),
+        m_text(NULL)
     {
-        memset(&m_rect,0,sizeof(m_rect));
+        memset(&m_icon_rect,0,sizeof(m_icon_rect));
+        memset(&m_text_rect,0,sizeof(m_text_rect));
+        memset(&m_full_rect,0,sizeof(m_full_rect));
     }
 
     /** selection **/
@@ -135,8 +144,8 @@ public:
     /// pick the widget, returns true if mx and my are within the widget bounds
     bool pick( int mx, int my )
     {
-        return mx>=m_rect.x && mx<=m_rect.x+m_rect.w
-             && my>=m_rect.y && my<=m_rect.y+m_rect.h;
+        return mx>=m_icon_rect.x && mx<=m_icon_rect.x+m_icon_rect.w
+             && my>=m_icon_rect.y && my<=m_icon_rect.y+m_icon_rect.h;
     }
 
     /** sdl surface **/
@@ -154,37 +163,52 @@ public:
         return m_icon!=NULL;
     }
 
+    void set_text(const string& text, TTF_Font* font)
+    {
+        SDL_Color clr = FONTCOLOR;
+        m_text = TTF_RenderText_Blended(font,text.c_str(),clr);
+    }
+
     SDL_Surface* get_icon_surface() const
     {
         return m_icon;
     }
 
-    /** draw rect **/
+    /** icon rect **/
 
     void set_rect( const SDL_Rect& rect )
     {
-        m_rect = rect;
+        m_full_rect = rect;
+        m_icon_rect = rect;
+        m_text_rect = rect;
     }
 
-    void center_rect()
+    void align_rect()
     {
         if(m_icon!=NULL) {
-            m_rect.x = m_rect.x + (m_rect.w-m_icon->w)/2;
-            m_rect.y = m_rect.y + (m_rect.h-m_icon->h)/2;
+            m_icon_rect.x = m_icon_rect.x + (m_icon_rect.w-m_icon->w)/2;
+            m_icon_rect.y += ICONOFFSET;
+        }
+        if (m_text!=NULL) {
+            m_text_rect.x = m_text_rect.x + (m_text_rect.w-m_text->w)/2;
+            m_text_rect.y = m_text_rect.y + m_text_rect.h - m_text->h - TEXTOFFSET;
         }
     }
-
-    SDL_Rect* get_rect()
-    {
-        return &m_rect;
-    }
-
 
     void blit_to(SDL_Surface* target)
     {
+        SDL_Rect cliprect = m_full_rect;
+        cliprect.x += CLIPBORDER;
+        cliprect.w -= CLIPBORDER*2;
+
+        SDL_SetClipRect(target,&cliprect);
         if (m_icon) {
-            SDL_BlitSurface(m_icon,NULL,target,&m_rect);
+            SDL_BlitSurface(m_icon,NULL,target,&m_icon_rect);
         }
+        if (m_text) {
+            SDL_BlitSurface(m_text,NULL,target,&m_text_rect);
+        }
+        SDL_SetClipRect(target,NULL);
     }
 
 
@@ -217,8 +241,11 @@ protected:
     }
 
 private:
-    SDL_Rect m_rect;
+    SDL_Rect m_full_rect;
+    SDL_Rect m_icon_rect;
     SDL_Surface *m_icon;
+    SDL_Rect m_text_rect;
+    SDL_Surface *m_text;
     int m_row;
     int m_col;
 };
@@ -253,6 +280,7 @@ public:
 
     AndroidApkEx( const string& folder, const string& name )
     {
+        m_apk_basename = name;
         m_apk_filepath = folder+"/"+name;
         m_apk_iconpath = my_realpath(ICONCACHEFOLDER) + "/" + name + ".png";
         m_apk = apk_open(m_apk_filepath.c_str());
@@ -267,6 +295,11 @@ public:
     string get_apk_filename() const
     {
         return m_apk_filepath;
+    }
+
+    string get_apk_basename() const
+    {
+        return m_apk_basename;
     }
 
     AndroidApk* get_apk() const
@@ -310,8 +343,7 @@ private:
     AndroidApk* m_apk;
     string m_apk_filepath;
     string m_apk_iconpath;
-    string m_apk_folder;
-    string m_apk_name;
+    string m_apk_basename;
 };
 AndroidApkEx*  AndroidApkEx::S_CurrentApk = 0;
 
@@ -340,7 +372,7 @@ int list_apks( const char* dir0, vector<AndroidApkEx*>* apks )
     return apks->size();
 }
 
-void init_icons(const vector<AndroidApkEx*>& apks)
+void init_widgets(const vector<AndroidApkEx*>& apks, TTF_Font* font)
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
         apks[i]->extract_icon();
@@ -349,45 +381,33 @@ void init_icons(const vector<AndroidApkEx*>& apks)
         } else {
             cerr << "Icon loaded for " << apks[i]->get_apk_filename() << endl;
         }
+        apks[i]->set_text(apks[i]->get_apk_basename(),font);
     }
 }
 
-void align_icons(SDL_Surface *target, int border, const vector<AndroidApkEx*>& apks)
+void align_widgets(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
 {
-    int maxwidth = 0;
-    int maxheight = 0;
-
-    for (int i=0,n=apks.size(); i<n; i++ ) {
-        AndroidApkEx* apk = apks[i];
-        SDL_Surface* icon = apk->get_icon_surface();
-
-        if (icon) {
-            if (icon->w>maxwidth) maxwidth = icon->w + border * 2;
-            if (icon->h>maxheight) maxheight = icon->h + border * 2;
-        }
-    }
-
-    SDL_Rect rect = {border,border,maxwidth,maxheight};
+    SDL_Rect rect = {0,0,WIDGETWIDTH,WIDGETHEIGHT};
 
     int row = 0, col = 0;
     for (int i=0,n=apks.size(); i<n; i++ ) {
 
         apks[i]->set_rect(rect);
         apks[i]->set_row_column(row,col);
-        apks[i]->center_rect();
+        apks[i]->align_rect();
 
         col ++;
-        rect.x += maxwidth;
-        if (rect.x>=target->w)
+        rect.x += WIDGETWIDTH;
+        if (rect.x+WIDGETWIDTH>target->w)
         {
             col = 0; row ++;
-            rect.x = border;
-            rect.y += maxheight;
+            rect.x = 0;
+            rect.y += WIDGETHEIGHT;
         }
     }
 }
 
-void draw_icons(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
+void draw_widgets(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
         apks[i]->blit_to(target);
@@ -500,7 +520,9 @@ int main ( int argc, char** argv )
         SDL_putenv("SDL_VIDEO_CENTERED=center"); //Center the game Window
     }
 
+#ifdef PANDORA
     SDL_ShowCursor(0);
+#endif
 
     mkdir( my_realpath(ICONCACHEFOLDER).c_str(), 0700 );
     mkdir( my_realpath(APKFOLDER).c_str(), 0700 );
@@ -517,12 +539,13 @@ int main ( int argc, char** argv )
 // load background image
     SDL_Surface* background = IMG_Load(BACKGROUNDIMAGE);
 // fooonts
-    TTF_Font* font = TTF_OpenFont(FONTFACE,FONTHEIGHT);
-    SDL_Color fontcolor = {200,200,200,0};
+    TTF_Font* fontbig = TTF_OpenFont(FONTFACE,FONTHEIGHTBIG);
+    TTF_Font* fontsmall = TTF_OpenFont(FONTFACE,FONTHEIGHTSMALL);
+    SDL_Color fontcolor = FONTCOLOR;
 
 // prepare info text rendering
     char errotext[1024]; sprintf(errotext,"No APKs have been found.\n\nPlease put them into the following folder:\n%s",my_realpath(APKFOLDER).c_str());
-    TextSurface errorscreen(errotext,font,fontcolor);
+    TextSurface errorscreen(errotext,fontbig,fontcolor);
 
 // search for apks
     vector<AndroidApkEx*> apks;
@@ -530,9 +553,9 @@ int main ( int argc, char** argv )
     if (list_apks(APKFOLDER,&apks)>0)
     {
         // initialize their icons
-        init_icons(apks);
+        init_widgets(apks,fontsmall);
         // align icons
-        align_icons(screen,ICONBORDER,apks);
+        align_widgets(screen,apks);
     }
 
 
@@ -546,7 +569,7 @@ int main ( int argc, char** argv )
         SDL_BlitSurface(background,0,screen,0);
 
         if (apks.size())
-            draw_icons(screen,apks);
+            draw_widgets(screen,apks);
         else
             errorscreen.blit_to(screen);
 
@@ -584,8 +607,8 @@ int main ( int argc, char** argv )
     if (runapk)
     {
         string cmdline = RUNAPK;
-        cmdline += " " + runapk->get_apk_filename();
-        cmdline += " " + string(argv[0]);
+        cmdline += " \"" + runapk->get_apk_filename() +"\"";
+        cmdline += " \"" + string(argv[0]) +"\"";
         cout << "cmdline=" << cmdline << endl;
         system(cmdline.c_str());
     }
