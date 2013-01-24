@@ -46,9 +46,13 @@
 #define SCREENHEIGHT     480
 #define SCREENBITS       16
 #define BACKGROUNDIMAGE  "res/background.png"
+#define ICONIMAGE        "res/icon.png"
+#define CLOSEIMAGE       "res/close.png"
 #define FONTFACE         "res/DroidSans.ttf"
+#define LOGOIMAGE        "res/logo.png"
 #define FONTHEIGHTBIG    16
 #define FONTHEIGHTSMALL  12
+#define TOPOFFSET        40
 #define ICONOFFSET       8
 #define TEXTOFFSET       4
 #define CLIPBORDER       4
@@ -57,6 +61,7 @@
 #define WIDGETWIDTH      100
 #define WIDGETHEIGHT     100
 #define FONTCOLOR        {200,200,200,0}
+#define BACKGROUNDCOLOR  100,100,100,0
 
 #ifdef PANDORA
 #define SDL_VIDEOMODE (SDL_SWSURFACE|SDL_FULLSCREEN|SDL_DOUBLEBUF)
@@ -130,13 +135,19 @@ class Widget
 public:
     Widget() :
         m_icon(NULL),
+        m_text(NULL),
         m_row(-1),
-        m_col(-1),
-        m_text(NULL)
+        m_col(-1)
     {
         memset(&m_icon_rect,0,sizeof(m_icon_rect));
         memset(&m_text_rect,0,sizeof(m_text_rect));
         memset(&m_full_rect,0,sizeof(m_full_rect));
+    }
+
+    virtual ~Widget()
+    {
+        if (m_icon) SDL_FreeSurface(m_icon);
+        if (m_text) SDL_FreeSurface(m_text);
     }
 
     /** selection **/
@@ -155,7 +166,7 @@ public:
         if (file_exists(iconpath) && m_icon==NULL) {
             m_icon = IMG_Load(iconpath.c_str());
 
-            if (m_icon!=NULL && (m_icon->w>maxwidth || m_icon->h>maxheight))
+            if ((maxwidth>0 && maxheight>0) && m_icon!=NULL && (m_icon->w>maxwidth || m_icon->h>maxheight))
             {
                 resize_icon(maxwidth,maxheight);
             }
@@ -231,8 +242,6 @@ public:
 protected:
     void resize_icon(int maxwidth, int maxheight)
     {
-        SDL_PixelFormat *format = m_icon->format;
-
         float aspect = float(maxwidth)/float(maxheight);
         SDL_Surface *scaled =
             zoomSurface(m_icon,float(maxwidth)/float(m_icon->w), float(maxheight)/float(m_icon->h)*aspect,SMOOTHING_ON);
@@ -286,7 +295,7 @@ public:
         m_apk = apk_open(m_apk_filepath.c_str());
     }
 
-    ~AndroidApkEx()
+    virtual ~AndroidApkEx()
     {
         if (m_apk)
             apk_close(m_apk);
@@ -372,6 +381,14 @@ int list_apks( const char* dir0, vector<AndroidApkEx*>* apks )
     return apks->size();
 }
 
+void free_apks( vector<AndroidApkEx*>& apks )
+{
+    for (int i=0,n=apks.size(); i<n; i++ ) {
+        if (apks[i]) delete apks[i];
+    }
+    apks.clear();
+}
+
 void init_widgets(const vector<AndroidApkEx*>& apks, TTF_Font* font)
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
@@ -387,7 +404,7 @@ void init_widgets(const vector<AndroidApkEx*>& apks, TTF_Font* font)
 
 void align_widgets(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
 {
-    SDL_Rect rect = {0,0,WIDGETWIDTH,WIDGETHEIGHT};
+    SDL_Rect rect = {0,TOPOFFSET,WIDGETWIDTH,WIDGETHEIGHT};
 
     int row = 0, col = 0;
     for (int i=0,n=apks.size(); i<n; i++ ) {
@@ -455,11 +472,18 @@ public:
             else {
                 currentline += *textptr;
             }
-            *textptr ++;
+            textptr ++;
         }
 
         if (currentline.size()) {
             m_lines.push_back(TTF_RenderText_Blended(font,currentline.c_str(),color));
+        }
+    }
+
+    virtual ~TextSurface()
+    {
+        for (int i=0,n=m_lines.size(); i<n; i++) {
+            if(m_lines[i]) SDL_FreeSurface(m_lines[i]);
         }
     }
 
@@ -479,7 +503,7 @@ protected:
         {
             SDL_Surface *textsurface = m_lines[line];
             SDL_Rect targetrect = {
-                target->w-textsurface->w>>1,
+                target->w-(textsurface->w>>1),
                 y,
                 textsurface->w,
                 textsurface->h
@@ -538,6 +562,7 @@ int main ( int argc, char** argv )
 
 // load background image
     SDL_Surface* background = IMG_Load(BACKGROUNDIMAGE);
+
 // fooonts
     TTF_Font* fontbig = TTF_OpenFont(FONTFACE,FONTHEIGHTBIG);
     TTF_Font* fontsmall = TTF_OpenFont(FONTFACE,FONTHEIGHTSMALL);
@@ -546,6 +571,22 @@ int main ( int argc, char** argv )
 // prepare info text rendering
     char errotext[1024]; sprintf(errotext,"No APKs have been found.\n\nPlease put them into the following folder:\n%s",my_realpath(APKFOLDER).c_str());
     TextSurface errorscreen(errotext,fontbig,fontcolor);
+
+// window stuff
+    SDL_Surface* icon = IMG_Load(ICONIMAGE);
+    SDL_WM_SetIcon(icon,NULL);
+    SDL_WM_SetCaption("apkenv.ui","apkenv.ui");
+
+// close button
+    Widget* closebutton = new Widget();
+    closebutton->load_icon_surface(CLOSEIMAGE,0,0);
+    SDL_Surface* closesurface = closebutton->get_icon_surface();
+    SDL_Rect closerect = {screen->w-closesurface->w,0,closesurface->w,closesurface->h};
+    closebutton->set_rect(closerect);
+
+// dragonbox logo
+    SDL_Surface* logo = IMG_Load(LOGOIMAGE);
+    SDL_Rect logorect = {screen->w-logo->w-ICONOFFSET,screen->h-logo->h-ICONOFFSET,logo->w,logo->h};
 
 // search for apks
     vector<AndroidApkEx*> apks;
@@ -559,19 +600,25 @@ int main ( int argc, char** argv )
     }
 
 
+
+
 //main loop
-    AndroidApkEx* runapk = NULL;
+    string runapk;
     AndroidApkEx* tmpapk = NULL;
 
     bool done = false;
-    while (!done && !runapk)
+    while (!done && runapk.size()==0)
     {
         SDL_BlitSurface(background,0,screen,0);
+
+        SDL_BlitSurface(logo,0,screen,&logorect);
 
         if (apks.size())
             draw_widgets(screen,apks);
         else
             errorscreen.blit_to(screen);
+
+        closebutton->blit_to(screen);
 
         SDL_Flip(screen);
 
@@ -591,27 +638,43 @@ int main ( int argc, char** argv )
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
-                tmpapk = select_apk(event.button.x,event.button.y,apks);
-                if (tmpapk) {
-                    cout << "Selected " << tmpapk->get_apk_filename() << endl;
-                    runapk = tmpapk;
+                if (closebutton->pick(event.button.x,event.button.y)) {
+                    done = true;
+                } else {
+                    tmpapk = select_apk(event.button.x,event.button.y,apks);
+                    if (tmpapk) {
+                        cout << "Selected " << tmpapk->get_apk_filename() << endl;
+                        runapk = tmpapk->get_apk_filename();
+                    }
                 }
                 break;
             }
         }
     }
 
+    delete closebutton;
+    SDL_FreeSurface(background);
+    SDL_FreeSurface(icon);
+    SDL_FreeSurface(logo);
+
+    free_apks(apks);
+
+    TTF_CloseFont(fontbig);
+    TTF_CloseFont(fontsmall);
+
     SDL_Quit();
     TTF_Quit();
 
-    if (runapk)
+
+    if (runapk.size())
     {
         string cmdline = RUNAPK;
-        cmdline += " \"" + runapk->get_apk_filename() +"\"";
+        cmdline += " \"" + runapk +"\"";
         cmdline += " \"" + string(argv[0]) +"\"";
         cout << "cmdline=" << cmdline << endl;
         system(cmdline.c_str());
     }
+
 
     return 0;
 }
