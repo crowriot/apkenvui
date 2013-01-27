@@ -31,6 +31,7 @@
 #include <SDL.h>
 #include <SDL/SDL_image.h>
 #include <SDL/SDL_rotozoom.h>
+#include <SDL/SDL_gfxPrimitives.h>
 #include <SDL/SDL_ttf.h>
 #include <vector>
 #include <string>
@@ -60,8 +61,9 @@
 #define ICONMAXHEIGHT    72
 #define WIDGETWIDTH      100
 #define WIDGETHEIGHT     100
-#define FONTCOLOR        {200,200,200,0}
+#define FONTCOLOR        200,200,200,0
 #define BACKGROUNDCOLOR  100,100,100,0
+#define SELECTIONCOLOR   150,150,150,255
 
 #ifdef PANDORA
 #define SDL_VIDEOMODE (SDL_SWSURFACE|SDL_FULLSCREEN|SDL_DOUBLEBUF)
@@ -137,7 +139,8 @@ public:
         m_icon(NULL),
         m_text(NULL),
         m_row(-1),
-        m_col(-1)
+        m_col(-1),
+        m_selected(0)
     {
         memset(&m_icon_rect,0,sizeof(m_icon_rect));
         memset(&m_text_rect,0,sizeof(m_text_rect));
@@ -159,6 +162,15 @@ public:
              && my>=m_icon_rect.y && my<=m_icon_rect.y+m_icon_rect.h;
     }
 
+    void set_selected( int select )
+    {
+        m_selected = select;
+    }
+    int get_selected() const
+    {
+        return m_selected;
+    }
+
     /** sdl surface **/
 
     bool load_icon_surface(const string& iconpath, int maxwidth, int maxheight)
@@ -176,7 +188,7 @@ public:
 
     void set_text(const string& text, TTF_Font* font)
     {
-        SDL_Color clr = FONTCOLOR;
+        SDL_Color clr = {FONTCOLOR};
         m_text = TTF_RenderText_Blended(font,text.c_str(),clr);
     }
 
@@ -206,11 +218,16 @@ public:
         }
     }
 
-    void blit_to(SDL_Surface* target)
+    void blit_to(SDL_Surface* selection, SDL_Surface* target)
     {
         SDL_Rect cliprect = m_full_rect;
         cliprect.x += CLIPBORDER;
         cliprect.w -= CLIPBORDER*2;
+
+        if (m_selected && selection) {
+            SDL_Rect selectionrect = m_full_rect;
+            SDL_BlitSurface(selection,NULL,target,&selectionrect);
+        }
 
         SDL_SetClipRect(target,&cliprect);
         if (m_icon) {
@@ -257,15 +274,16 @@ private:
     SDL_Surface *m_text;
     int m_row;
     int m_col;
+    int m_selected;
 };
 
 
 /* -------- */
 
-class AndroidApkEx : public Widget
+class ApkWidget : public Widget
 {
 public:
-    static AndroidApkEx* S_CurrentApk;
+    static ApkWidget* S_CurrentApk;
     static void extract_icon_callback(const char* filename, char* buf, size_t size)
     {
         if (S_CurrentApk->icon_exists()==false)
@@ -287,7 +305,7 @@ public:
     }
 
 
-    AndroidApkEx( const string& folder, const string& name )
+    ApkWidget( const string& folder, const string& name )
     {
         m_apk_basename = name;
         m_apk_filepath = folder+"/"+name;
@@ -295,7 +313,7 @@ public:
         m_apk = apk_open(m_apk_filepath.c_str());
     }
 
-    virtual ~AndroidApkEx()
+    ~ApkWidget()
     {
         if (m_apk)
             apk_close(m_apk);
@@ -354,10 +372,10 @@ private:
     string m_apk_iconpath;
     string m_apk_basename;
 };
-AndroidApkEx*  AndroidApkEx::S_CurrentApk = 0;
+ApkWidget*  ApkWidget::S_CurrentApk = 0;
 
 ///
-int list_apks( const char* dir0, vector<AndroidApkEx*>* apks )
+int list_apks( const char* dir0, vector<ApkWidget*>* apks )
 {
     string directory = my_realpath(dir0);
 
@@ -373,7 +391,7 @@ int list_apks( const char* dir0, vector<AndroidApkEx*>* apks )
         const char* ext = strrchr(entry->d_name,'.');
         if (ext!=NULL && strcmp(ext,".apk")==0)
         {
-            apks->push_back(new AndroidApkEx(directory,entry->d_name));
+            apks->push_back(new ApkWidget(directory,entry->d_name));
         }
     }
     closedir(dir);
@@ -381,7 +399,7 @@ int list_apks( const char* dir0, vector<AndroidApkEx*>* apks )
     return apks->size();
 }
 
-void free_apks( vector<AndroidApkEx*>& apks )
+void free_apks( vector<ApkWidget*>& apks )
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
         if (apks[i]) delete apks[i];
@@ -389,7 +407,17 @@ void free_apks( vector<AndroidApkEx*>& apks )
     apks.clear();
 }
 
-void init_widgets(const vector<AndroidApkEx*>& apks, TTF_Font* font)
+void replace( string& inout, const string& find, const string& replace )
+{
+    size_t pos=0;
+    while ((pos=inout.find(find,pos))!=string::npos)
+    {
+        inout.replace(pos,find.length(),replace);
+        pos += replace.length();
+    }
+}
+
+void init_widgets(const vector<ApkWidget*>& apks, TTF_Font* font)
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
         apks[i]->extract_icon();
@@ -398,11 +426,15 @@ void init_widgets(const vector<AndroidApkEx*>& apks, TTF_Font* font)
         } else {
             cerr << "Icon loaded for " << apks[i]->get_apk_filename() << endl;
         }
-        apks[i]->set_text(apks[i]->get_apk_basename(),font);
+
+        string label = apks[i]->get_apk_basename();
+        replace(label,".apk","");
+        replace(label,"_", " ");
+        apks[i]->set_text(label,font);
     }
 }
 
-void align_widgets(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
+void align_widgets(SDL_Surface *target, const vector<ApkWidget*>& apks)
 {
     SDL_Rect rect = {0,TOPOFFSET,WIDGETWIDTH,WIDGETHEIGHT};
 
@@ -424,14 +456,14 @@ void align_widgets(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
     }
 }
 
-void draw_widgets(SDL_Surface *target, const vector<AndroidApkEx*>& apks)
+void draw_widgets(SDL_Surface *target, SDL_Surface *selection, const vector<ApkWidget*>& apks)
 {
     for (int i=0,n=apks.size(); i<n; i++ ) {
-        apks[i]->blit_to(target);
+        apks[i]->blit_to(selection,target);
     }
 }
 
-AndroidApkEx* select_apk(int mx, int my, const vector<AndroidApkEx*>& apks )
+ApkWidget* pick_apk(int mx, int my, const vector<ApkWidget*>& apks )
 {
     for (int i=0,n=apks.size(); i<n; i++)
     {
@@ -441,6 +473,57 @@ AndroidApkEx* select_apk(int mx, int my, const vector<AndroidApkEx*>& apks )
 
     return NULL;
 }
+
+int get_selected_apk(const vector<ApkWidget*>& apks)
+{
+     for (int i=0,n=apks.size(); i<n; i++) {
+        if(apks[i] && apks[i]->get_selected()) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void select_apk(const vector<ApkWidget*>& apks, int leftright, int updown)
+{
+    int selected = get_selected_apk(apks);
+    if(selected<0) {
+        if(apks.size())
+            apks[0]->set_selected(1);
+    } else {
+
+        apks[selected]->set_selected(0);
+
+        if (leftright)
+        {
+            selected += leftright;
+            if (selected<0) selected = apks.size()-1;
+            if (selected>=apks.size()) selected = 0;
+        }
+        else
+        if (updown)
+        {
+            int maxrow = 0;
+            for (int i=0,n=apks.size();i<n;i++) {
+                if (apks[i]->get_col()==apks[selected]->get_col() && apks[i]->get_row()>maxrow) maxrow = apks[i]->get_row();
+            }
+            maxrow ++;
+            int row = apks[selected]->get_row() + updown;
+            int col = apks[selected]->get_col();
+            if (row<0) row = maxrow - 1;
+            if (row>=maxrow) row %= maxrow;
+
+            for (int i=0,n=apks.size();i<n;i++) {
+                if (apks[i]->get_row()==row && apks[i]->get_col()==col) {
+                    selected = i;
+                    break;
+                }
+            }
+        }
+        apks[selected]->set_selected(1);
+     }
+}
+
 
 /** text surface **/
 
@@ -503,7 +586,7 @@ protected:
         {
             SDL_Surface *textsurface = m_lines[line];
             SDL_Rect targetrect = {
-                target->w-(textsurface->w>>1),
+                (target->w-textsurface->w)/2,
                 y,
                 textsurface->w,
                 textsurface->h
@@ -544,6 +627,7 @@ int main ( int argc, char** argv )
         SDL_putenv("SDL_VIDEO_CENTERED=center"); //Center the game Window
     }
 
+    SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 #ifdef PANDORA
     SDL_ShowCursor(0);
 #endif
@@ -563,13 +647,29 @@ int main ( int argc, char** argv )
 // load background image
     SDL_Surface* background = IMG_Load(BACKGROUNDIMAGE);
 
+// selection
+    Uint32 rmask, gmask, bmask, amask;
+    rmask = 0x000000ff;
+    gmask = 0x0000ff00;
+    bmask = 0x00ff0000;
+    amask = 0xff000000;
+    SDL_Surface* selection = SDL_CreateRGBSurface(SDL_SWSURFACE, WIDGETWIDTH, WIDGETHEIGHT, 32,
+                                   rmask, gmask, bmask, amask);
+
+    rectangleRGBA(selection,1,1,selection->w-1,selection->h-1,SELECTIONCOLOR);
+
 // fooonts
     TTF_Font* fontbig = TTF_OpenFont(FONTFACE,FONTHEIGHTBIG);
     TTF_Font* fontsmall = TTF_OpenFont(FONTFACE,FONTHEIGHTSMALL);
-    SDL_Color fontcolor = FONTCOLOR;
+    SDL_Color fontcolor = {FONTCOLOR};
 
 // prepare info text rendering
-    char errotext[1024]; sprintf(errotext,"No APKs have been found.\n\nPlease put them into the following folder:\n%s",my_realpath(APKFOLDER).c_str());
+    char errotext[1024];
+#ifdef PANDORA
+    sprintf(errotext,"No APKs have been found.\n\nPlease put them into your \"appdata/apkenv/apks\" folder.");
+#else
+    sprintf(errotext,"No APKs have been found.\n\nPlease put them into the following folder:\n%s",my_realpath(APKFOLDER).c_str());
+#endif
     TextSurface errorscreen(errotext,fontbig,fontcolor);
 
 // window stuff
@@ -589,7 +689,7 @@ int main ( int argc, char** argv )
     SDL_Rect logorect = {screen->w-logo->w-ICONOFFSET,screen->h-logo->h-ICONOFFSET,logo->w,logo->h};
 
 // search for apks
-    vector<AndroidApkEx*> apks;
+    vector<ApkWidget*> apks;
 
     if (list_apks(APKFOLDER,&apks)>0)
     {
@@ -597,6 +697,8 @@ int main ( int argc, char** argv )
         init_widgets(apks,fontsmall);
         // align icons
         align_widgets(screen,apks);
+        // select the first one
+        apks[0]->set_selected(1);
     }
 
 
@@ -604,7 +706,8 @@ int main ( int argc, char** argv )
 
 //main loop
     string runapk;
-    AndroidApkEx* tmpapk = NULL;
+    ApkWidget* tmpapk = NULL;
+
 
     bool done = false;
     while (!done && runapk.size()==0)
@@ -614,11 +717,11 @@ int main ( int argc, char** argv )
         SDL_BlitSurface(logo,0,screen,&logorect);
 
         if (apks.size())
-            draw_widgets(screen,apks);
+            draw_widgets(screen,selection,apks);
         else
             errorscreen.blit_to(screen);
 
-        closebutton->blit_to(screen);
+        closebutton->blit_to(NULL,screen);
 
         SDL_Flip(screen);
 
@@ -633,15 +736,36 @@ int main ( int argc, char** argv )
                 break;
 
             case SDL_KEYDOWN:
-                if (event.key.keysym.sym == SDLK_ESCAPE)
-                    done = true;
+                switch(event.key.keysym.sym)
+                {
+                default: break;
+                case SDLK_ESCAPE: done = true; break;
+                case SDLK_LEFT: select_apk(apks,-1,0); break;
+                case SDLK_RIGHT: select_apk(apks,1,0); break;
+                case SDLK_UP: select_apk(apks,0,-1); break;
+                case SDLK_DOWN: select_apk(apks,0,+1); break;
+#ifdef PANDORA
+                case SDLK_HOME:
+                case SDLK_END:
+                case SDLK_PAGEUP:
+                case SDLK_PAGEDOWN:
+#endif
+                case SDLK_RETURN:
+                    {
+                        int i = get_selected_apk(apks);
+                        if (i>=0) {
+                            runapk = apks[i]->get_apk_filename();
+                        }
+                    }
+                break;
+                }
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
                 if (closebutton->pick(event.button.x,event.button.y)) {
                     done = true;
                 } else {
-                    tmpapk = select_apk(event.button.x,event.button.y,apks);
+                    tmpapk = pick_apk(event.button.x,event.button.y,apks);
                     if (tmpapk) {
                         cout << "Selected " << tmpapk->get_apk_filename() << endl;
                         runapk = tmpapk->get_apk_filename();

@@ -6,7 +6,7 @@ NUB1=`cat /proc/pandora/nub1/mode`
 echo absolute > /proc/pandora/nub0/mode
 echo absolute > /proc/pandora/nub1/mode
 
-./apkenv $1
+./apkenv "$1"
 $2
 
 #restore nubs
