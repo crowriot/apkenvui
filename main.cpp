@@ -43,27 +43,29 @@
 #include <iostream>
 
 
-#define SCREENWIDTH      800
-#define SCREENHEIGHT     480
-#define SCREENBITS       16
-#define BACKGROUNDIMAGE  "res/background.png"
-#define ICONIMAGE        "res/icon.png"
-#define CLOSEIMAGE       "res/close.png"
-#define FONTFACE         "res/DroidSans.ttf"
-#define LOGOIMAGE        "res/logo.png"
-#define FONTHEIGHTBIG    16
-#define FONTHEIGHTSMALL  12
-#define TOPOFFSET        40
-#define ICONOFFSET       8
-#define TEXTOFFSET       4
-#define CLIPBORDER       4
-#define ICONMAXWIDTH     72
-#define ICONMAXHEIGHT    72
-#define WIDGETWIDTH      100
-#define WIDGETHEIGHT     100
-#define FONTCOLOR        200,200,200,0
-#define BACKGROUNDCOLOR  100,100,100,0
-#define SELECTIONCOLOR   150,150,150,255
+#define SCREENWIDTH       800
+#define SCREENHEIGHT      480
+#define SCREENBITS        16
+#define BACKGROUNDIMAGE   "res/background.png"
+#define ICONIMAGE         "res/icon.png"
+#define CLOSEIMAGE        "res/close.png"
+#define FONTFACE          "res/DroidSans.ttf"
+#define LOGOIMAGE         "res/logo.png"
+#define FONTHEIGHTBIG     16
+#define FONTHEIGHTSMALL   12
+#define TOPOFFSET         40
+#define ICONOFFSET        8
+#define TEXTOFFSET        4
+#define CLIPBORDER        4
+#define ICONMAXWIDTH      72
+#define ICONMAXHEIGHT     72
+#define WIDGETWIDTH       100
+#define WIDGETHEIGHT      100
+#define FONTCOLOR         200,200,200,0
+#define BACKGROUNDCOLOR   100,100,100,0
+#define SELECTIONCOLOR    150,150,150,255
+#define CONFIGFILE        "apkenvui.cfg"
+#define CONFIGFILEVERSION 1
 
 #ifdef PANDORA
 #define SDL_VIDEOMODE (SDL_SWSURFACE|SDL_FULLSCREEN|SDL_DOUBLEBUF)
@@ -424,7 +426,7 @@ void init_widgets(const vector<ApkWidget*>& apks, TTF_Font* font)
         if (!apks[i]->load_icon(ICONMAXWIDTH,ICONMAXHEIGHT)) {
             cerr << "Failed to load Icon for " << apks[i]->get_apk_filename() << endl;
         } else {
-            cerr << "Icon loaded for " << apks[i]->get_apk_filename() << endl;
+            //cerr << "Icon loaded for " << apks[i]->get_apk_filename() << endl;
         }
 
         string label = apks[i]->get_apk_basename();
@@ -606,6 +608,49 @@ private:
 };
 
 
+/** "config" file **/
+
+void save_config( const string& apkname )
+{
+    FILE* fp = fopen(CONFIGFILE,"wb");
+    if(fp) {
+        int version = CONFIGFILEVERSION;
+        fwrite(&version,sizeof(int),1,fp);
+        int l = apkname.size();
+        fwrite(&l,sizeof(int),1,fp);
+        fwrite(apkname.c_str(),sizeof(char)*l,1,fp);
+        fclose(fp);
+    }
+}
+
+string load_config()
+{
+    FILE* fp = fopen(CONFIGFILE,"rb");
+    if(fp){
+        int version=0;
+        if (fread(&version,sizeof(int),1,fp)!=1 || version!=CONFIGFILEVERSION) {
+            fclose(fp);
+            return "";
+        }
+        int l=0;
+        if (fread(&l,sizeof(int),1,fp)!=1) {
+            fclose(fp);
+            return "";
+        }
+        string apkname;
+        char *tmp = new char[l+1];
+        if (fread(tmp,sizeof(char)*l,1,fp)==1)
+        {
+            tmp[l] = 0;
+            apkname = tmp;
+        }
+        fclose(fp);
+        delete [] tmp;
+        //cout << "config apk = " << apkname << endl;
+        return apkname;
+    }
+    return "";
+}
 
 /** main */
 
@@ -699,6 +744,16 @@ int main ( int argc, char** argv )
         align_widgets(screen,apks);
         // select the first one
         apks[0]->set_selected(1);
+
+        // select the old one
+        string prevapk = load_config();
+        for (int i=0,n=apks.size(); i<n;i++) {
+            if (apks[i]->get_apk_filename()==prevapk) {
+                apks[0]->set_selected(0);
+                apks[i]->set_selected(1);
+                break;
+            }
+        }
     }
 
 
@@ -792,6 +847,8 @@ int main ( int argc, char** argv )
 
     if (runapk.size())
     {
+        save_config(runapk);
+
         string cmdline = RUNAPK;
         cmdline += " \"" + runapk +"\"";
         cmdline += " \"" + string(argv[0]) +"\"";
