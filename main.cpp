@@ -286,26 +286,15 @@ class ApkWidget : public Widget
 {
 public:
     static ApkWidget* S_CurrentApk;
-    static void extract_icon_callback(const char* filename, char* buf, size_t size)
+    static void extract_icon_exact_callback(const char* filename, char* buf, size_t size)
     {
-        if (S_CurrentApk->icon_exists()==false)
+        FILE *fp = fopen(S_CurrentApk->m_apk_iconpath.c_str(),"wb");
+        if (fp)
         {
-            if (strstr(filename,"icon")!=0)
-            {
-                const char* ext = strrchr(filename,'.');
-                if (ext && strcmp(ext,".png")==0)
-                {
-                    FILE *fp = fopen(S_CurrentApk->m_apk_iconpath.c_str(),"wb");
-                    if (fp)
-                    {
-                        fwrite(buf,size,1,fp);
-                        fclose(fp);
-                    }
-                }
-            }
+            fwrite(buf,size,1,fp);
+            fclose(fp);
         }
     }
-
 
     ApkWidget( const string& folder, const string& name )
     {
@@ -313,6 +302,16 @@ public:
         m_apk_filepath = folder+"/"+name;
         m_apk_iconpath = my_realpath(ICONCACHEFOLDER) + "/" + name + ".png";
         m_apk = apk_open(m_apk_filepath.c_str());
+
+        if (apk_read_resources(m_apk,&m_apk_resources)==APK_OK)
+        {
+            if (m_apk_resources.app_name!=0) {
+                m_apk_basename = m_apk_resources.app_name;
+            }
+            if (m_apk_resources.game_name!=0) {
+                m_apk_basename = m_apk_resources.game_name;
+            }
+        }
     }
 
     ~ApkWidget()
@@ -341,22 +340,38 @@ public:
 
     void extract_icon()
     {
-        const char* iconprefixes[] = {
-            "res/drawable-hdpi/icon",
-            "res/drawable/icon",
-            "res/drawable-hdpi",
-            "res/drawable",
-            0
-        };
+        // The code below may look a bit over-complicated but there's a reason:
+        // The resource table stores a key->value mapping where the key is allowed to exist more than once,
+        // so i look out for hires icons first and then go down to the lowres ones.
+        // Also there's either "app_icon" or "icon" used as a key name ...
+        if (!icon_exists()) {
+            const char* icon_prefixes[] = {
+                "res/drawable-hdpi",
+                "res/drawable-mdpi",
+                "res/drawable-ldpi",
+                "res/drawable",
+                0
+            };
 
-        S_CurrentApk = this;
-        int i=0;
-        while(!icon_exists() && iconprefixes[i]) {
-            apk_for_each_file(m_apk,iconprefixes[i],extract_icon_callback);
-            i++;
+            S_CurrentApk = this;
+
+            int i=0;
+            while(!icon_exists() && icon_prefixes[i]) {
+                const char* icon_path = get_resource_string("app_icon",icon_prefixes[i],"");
+                if (icon_path[0]==0) {
+                    icon_path = get_resource_string("icon",icon_prefixes[i],"");
+                }
+                if (icon_path[0]!=0) {
+                    apk_for_each_file(m_apk,icon_path,extract_icon_exact_callback);
+                }
+                i++;
+            }
+
+            S_CurrentApk = NULL;
         }
-        S_CurrentApk = NULL;
+
     }
+
 
     bool load_icon(int maxw, int maxh)
     {
@@ -368,11 +383,43 @@ public:
         return file_exists(m_apk_iconpath);
     }
 
+protected:
+    const char* get_resource_string( const char* key, const char* default_value )
+    {
+        for (int i=0;i<m_apk_resources.count;i++) {
+            if (strcmp(m_apk_resources.entries[i].key,key)==0) {
+                return m_apk_resources.entries[i].value;
+            }
+        }
+        return default_value;
+    }
+    const char* get_resource_string( const char* key, const char* value_prefix, const char* default_value )
+    {
+        for (int i=0;i<m_apk_resources.count;i++) {
+            if (strcmp(m_apk_resources.entries[i].key,key)==0
+                && strstr(m_apk_resources.entries[i].value,value_prefix)==m_apk_resources.entries[i].value) {
+                return m_apk_resources.entries[i].value;
+            }
+        }
+        return default_value;
+    }
+
+
+    void print_resource_strings(const char* key_match)
+    {
+        for (int i=0,n=m_apk_resources.count; i<n; i++) {
+            if (key_match[0]==0 || strcmp(m_apk_resources.entries[i].key,key_match)==0) {
+                cout << m_apk_resources.entries[i].key << " -> " << m_apk_resources.entries[i].value << endl;
+            }
+        }
+    }
+
 private:
     AndroidApk* m_apk;
     string m_apk_filepath;
     string m_apk_iconpath;
     string m_apk_basename;
+    struct ResourceStrings m_apk_resources;
 };
 ApkWidget*  ApkWidget::S_CurrentApk = 0;
 
@@ -684,7 +731,7 @@ int main ( int argc, char** argv )
     SDL_Surface* screen = SDL_SetVideoMode(SCREENWIDTH, SCREENHEIGHT, SCREENBITS, SDL_VIDEOMODE);
     if ( !screen )
     {
-        printf("Unable to set %dx%d video: %s\n", SCREENWIDTH,SCREENHEIGHT,SDL_GetError());
+        cerr << "Unable to set " << SCREENWIDTH << "x" << SCREENHEIGHT << " video mode. Error: " << SDL_GetError() << endl;
         return 1;
     }
 
