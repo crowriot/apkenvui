@@ -17,7 +17,7 @@ fi
 # see http://pandorawiki.org/SDL#Cursor_drift_in_fullscreen_mode
 export SDL_MOUSE_RELATIVE=0
 
-./apkenv "$1"
+./apkenv "$1" &> log.txt
 $2
 
 #restore nubs
