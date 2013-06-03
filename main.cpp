@@ -305,11 +305,11 @@ public:
 
         if (apk_read_resources(m_apk,&m_apk_resources)==APK_OK)
         {
-            if (m_apk_resources.app_name_index>=0) {
-                m_apk_basename = m_apk_resources.entries[m_apk_resources.app_name_index].value;
+            if (m_apk_resources.app_name!=NULL) {
+                m_apk_basename = m_apk_resources.app_name;
             }
-            if (m_apk_resources.game_name_index>=0) {
-                m_apk_basename = m_apk_resources.entries[m_apk_resources.game_name_index].value;
+            if (m_apk_resources.game_name!=NULL) {
+                m_apk_basename = m_apk_resources.game_name;
             }
         }
     }
